@@ -28,6 +28,8 @@ library(ggplot2) # Plotting, of course
 library(corrplot) # Correlation plots
 library(caret)   # Many aspects of predictive modeling
 library(skimr)  # An automated EDA tool 
+library(rpart)
+library(rpart.plot)
 ```
 **MAJOR (10%) HACKER EXTRA** Version control
 
@@ -101,7 +103,7 @@ Do some EDA to try to uncover some relationships that may end up being
 useful in building a predictive model for `Exited`. You learned
 things in HW2 which should be useful here. You should **ONLY** use `churn_train` for your EDA. You should explore all of the variables.
 
-```{r Factors vs Exit message=FALSE, warning=FALSE}
+```{r Factors_vs_Exit, message=FALSE, warning=FALSE}
 for (i in 1:10) {
   selected_var <- names(churn_train)[i]
   if (is.factor(churn_train[[selected_var]])) {
@@ -116,9 +118,12 @@ for (i in 1:10) {
   }
 }
 ```
+
+
 > Right off of the bat, a high proportion of people in Germany, females, and those that are not active members appear to exit more frequently -- independent of one another. 
 
-```{r Non-Factors vs Exit}
+
+```{r Non-Factors_vs_Exit}
 for (i in 1:10) {
   selected_var <- names(churn_train)[i]
   if (!is.factor(churn_train[[selected_var]])) {
@@ -127,16 +132,20 @@ for (i in 1:10) {
   }
 }
 ```
+
+
 > It seems there doesn't appear to be a large difference between people with similar credit scores or differing estimated salaries. Meanwhile, it seems that the quantiles of individuals that are older tend to exit more often and the mean of indivdiuals who exit often have $0 in their accounts. 
 
 
-```{r }
+```{r correlation_matrix}
 corr_matrix <- cor(select_if(churn_train, is.numeric))
 corrplot(corr_matrix)
 ```
+
 > None of the numeric data seems to be correlated with any of the other numeric data.
 
-```{r Exploring balance further}
+
+```{r Exploring_balance_further}
 churn_train %>%
   ggplot(aes(x = Balance, color = Exited)) + geom_dotplot(binwidth = 500) 
 ```
@@ -215,9 +224,11 @@ are not that many variables, let's use all of them. Here's a code skeleton to he
 **Hint**: There's an easy way to specify your model formula to include all of the predictor variables
 without typing out all the variable names. 
 
+
 ```{r lr1_train}
 # Fit model to training data
-model_lr1 <- glm(Exited ~ Geography + Gender + Age + Balance * NumOfProducts + IsActiveMember,
+# A better model exists with Geography + Gender + Age + Balance * NumOfProducts + IsActiveMember
+model_lr1 <- glm(Exited ~ .,
   data=churn_train, family=binomial(link="logit"))
 
 ## Convert fitted model values to fitted classes. Use 0.5 as the
@@ -229,7 +240,6 @@ class_train_lr1 <- as.factor(ifelse(model_lr1$fitted.values > 0.5, 1, 0))
 cm_train_lr1 <- confusionMatrix(class_train_lr1, model_lr1$data$Exited, positive="1")
 cm_train_lr1
 ```
-
 Now, let's predict on test data.
 
 ```{r lr1_test}
@@ -259,7 +269,7 @@ cm_test_lr2
 
 ```
 
-> When lowering the logistic regression threshold down to 40% instead of 50%, my model saw about a 1% drop-off in accuracy with the test set, about 5% drop with specificity, and about a 10% gain of sensitivity. This is actually good despite the falling accuracy and specifcity because we want to correctly predict the people taht are going to leave.. the true positves / true positives + false negatives. 
+> When lowering the logistic regression threshold down to 40% instead of 50%, my model saw about a 1% drop-off in accuracy with the test set, about 4% drop with specificity, and about a 10% gain of sensitivity. This is actually good despite the falling accuracy and specifcity because we want to correctly predict the people taht are going to leave.. the true positves / true positives + false negatives. 
 
 
 ### Fit simple decision tree model
@@ -268,62 +278,80 @@ Now create a simple decision tree model to predict `Exited`. Again,
 use all the variables.
 
 ```{r tree1_train}
-# model_tree1 <- ???(b_fetal_health ~ ???, data=???)
+model_tree1 <- rpart(Exited ~ . , data=churn_train)
 
-# class_train_tree1 <- predict(???, type="???")
+class_train_tree1 <- predict(model_tree1, type="class")
 
-# cm_train_tree1 <- confusionMatrix(???, ???, positive="1")
-# cm_train_tree1
+cm_train_tree1 <- confusionMatrix(class_train_tree1, churn_train$Exited, positive="1")
+cm_train_tree1
 ```
 
 Create a plot of your decision tree.
 
 ```{r decision_tree_plot}
-
+rpart.plot(model_tree1)
 ```
 
 Explain the bottom left node of your tree. What conditions have to be true for a case to end up being classified by that node? What do those three numbers in the node mean? What does the color of the node mean?
 
-> PUT ANSWER HERE
+> The bottom left node on my tree means that if the age of the person is younger than 43 and their number of products is greater than 2, then they will be classified as not having exited the bank. The bottom value of the node (43%) implies that 43% of cases of the node above are in that node. The central value (0.04 in this case) implies that that percent answers yes to the criteria above (Num of Products < 2) relative to the full classifier node and the top value (the 0 in this case) means that because the percent of criteria is less than 50%, it is a no. The color implies the strength of being that classifier relative to the target.   
 
 Now, let's predict on test data.
 
 ```{r tree1_test}
 
-# pred_tree1 <- predict(???, newdata = ???, type = "???")
+pred_tree1 <- predict(model_tree1, newdata = churn_test, type = "class")
 
-# cm_test_tree1 <- confusionMatrix(???, ???, positive="1")
-# cm_test_tree1
+cm_test_tree1 <- confusionMatrix(pred_tree1, churn_test$Exited, positive="1")
+cm_test_tree1
 
 ```
 
 **QUESTION** How does the performance of the decision tree compare to your
 logistic regression model? 
 
-> PUT ANSWER HERE
+> The logistic regression model held about a 1% worse accuracy, but a 9% better sensitivity, and a 4% better specificity. With that being said, I would probably rely on the logistic regression model due to its better specificity.  
+
 
 ## Fit random forest model
 
 Finally, fit a random forest model.
 
 ```{r rf1_train}
-
+library(randomForest)
+churn_rf <- randomForest(Exited ~ .,
+                         data=churn_train,
+                         mtry=4,
+                         importance=TRUE)
 ```
 
 Now, let's predict on test data.
 
 ```{r rf1_test}
-
-
+churn_rf_pred <- predict(churn_rf, churn_test, type="class")
+cm.rf.pred <- confusionMatrix(churn_rf_pred, churn_test$Exited, positive = "1")
+cm.rf.pred
 ```
 
 
 **QUESTION** Summarize the performance of all three of your models (logistic, tree, random forest)? Is their evidence of overfitting in any of these model and what is your evidence for your answer? Add code chunks as needed.
 
-> PUT ANSWER HERE
+> All three of these models predicted pretty similar results with accuracy around 85%, sensitivity around 50-55%, and specificity from 90-95%. Out of the three models, I would probably choose the random forest because I desired to maximiize sensitivity (which still isn't great). I don't believe there is any overfitting for the models as they all have similar metrics based on their training data to test data. Thus, they aren't fit super well in the training phase, at least comparatively to their ability to predict test results. I wonder how the measurement statistics would've come back if I tried bootstrapping/bagging or boosting or even tried to change my parameters to not include all of the variables. 
+
+```{r Comparison_of_Statistics}
+cm_test_lr1$overall
+cm_train_lr1$overall
+cm_test_lr2$overall
+cm_train_tree1$overall
+cm_test_tree1$overall
+cm.rf.pred$overall
+
+```
 
 
 **QUESTION** If you had to pick one to use in an actual financial environment, which model would you use and why? As a manager in charge of retention, what model performance metrics are you most interested in? What are the basic tradeoffs you see in terms of the initiatives you might undertake in response to such a model? For example, if you were really interested in reducing the number of customers exiting, maybe there are some things you might do to incent high risk (of exiting) customers to stay. Discuss.
+
+> In previous questions, I had referenced that sensitivity (recall) was probably the metric that you would want to maximize in terms of predicting which of your clients were likely to leave your bank for another bank. In this case, accuracy is most likely not that important because the null model is able to correctly predict that any individual is going to leave the bank with great success. Likewise, precision in this case may not be super helpful because it would tell me how many people I predicted that left out of how many actually left -- otherwise just highlighting the amount of customers who were predicted to exit, but actually did not. Thus, the best metric for retention to identify your risky customers would be recall. Becuase I found that the randomForest model had the highest recall (even just marginally), I would implement that model in order to try to predict what customers may leave for another bank. In order to incentivize these indivdiuals to stay, I could target them specifically with incentive programs such as a special rewards program (like cashback, airmiles, savings at select consumers, etc.). I also think it would be beneficial to send a lot of marketing towards joining the bank's membership program to these specific individuals as it was seen that members are less likely to abandon the bank.    
 
 
 **HACKER EXTRA**
@@ -332,5 +360,26 @@ Create a variable importance plot for your random forest to try to get a sense o
 suggested by the importance plot. How does the performance of this reduced model compare to the original model?
 
 ```{r importance}
+churn_rf$importance
+df_imp <- as.data.frame(churn_rf$importance) %>%
+  arrange(desc(MeanDecreaseGini))
+
+df_imp <- tibble:: rownames_to_column(df_imp, "variable")
+ggplot(df_imp) + geom_bar(aes(x=reorder(variable, MeanDecreaseAccuracy), y = MeanDecreaseAccuracy),
+                          stat = "identity") + coord_flip()
 
 ```
+
+
+```{r randomForest_importance}
+rf_imp <- randomForest(Exited ~ NumOfProducts + Age + Balance + IsActiveMember + Geography,
+                       data = churn_train)
+
+pred.rf.imp <- predict(rf_imp, churn_test, type="class")
+imp.rf.pred <- confusionMatrix(pred.rf.imp, churn_test$Exited, positive = "1")
+imp.rf.pred
+
+```
+
+> This model that is only utilizing importance seems to predict better accuracy and specificity for bank churn, but doesn't do much better with sensitivity. I would still use the other Random Forest created. This partically may be due to the fact that the importance argument on the first random forest, after bagging the results. Perhaps if I didn't do bagging on it then the newer model with only the top 5 most important quantifiers would have been better. 
+
