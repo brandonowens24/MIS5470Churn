@@ -1,5 +1,6 @@
 ---
 title: "hw3_p2_churn"
+author: "Brandon Owens"
 output: html_document
 date: "2024-02-19"
 ---
