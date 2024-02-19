@@ -44,7 +44,14 @@ This Hacker Extra is worth 10% of the total number of points in the assignment.
 Read the `churn.csv` file from the `data` subfolder into a dataframe named `churn`.
 
 ```{r read_churn}
-# ??? <- ???
+churn <- read.csv("data/churn.csv")
+```
+
+```{r}
+str(churn)
+summary(churn)
+skim(churn)
+
 ```
 
 Use `str`, `summary`, and `skim` to get a sense of the data. 
@@ -55,8 +62,11 @@ The binary target variable is `Exited` where 1 indicates that the customer left 
 Some of the variables clearly should be factors. Change all of the variables to factors that you think should be. Include an explanation of why each of these variables should be converted to factors.
 
 ```{r factor_conversions}
-
+churn <- churn  %>%
+  mutate(across(c("Geography", "Gender", "Tenure", "NumOfProducts", "HasCrCard", "IsActiveMember", "Exited"), as.factor))
 ```
+
+> Any variable that includes a binary classifier should be a factor like "Exited", "HasCrCard", "IsActiveMember", and "Gender". Additionally, converting the geography origin that is in string format as factors helps with potential grouping as does tenure and number of products. Other variables like age, credit score, balance, and estimated salary may be useful to keep how they are at the moment, but I might consider putting some of their values into factored bins for future grouping.  
 
 ## Step 3 - Partition into training and test sets
 
@@ -65,8 +75,7 @@ all be working with the same datasets. Notice that the test set is 20% of
 the full dataset.
 
 ```{r partition}
-# Simple partition into train (80%) and test (20%) set 
-set.seed(687) # Do NOT change this
+set.seed(687) 
 trainIndex <- createDataPartition(churn$Exited, p = .8, 
                                   list = FALSE, 
                                   times = 1)
@@ -80,7 +89,9 @@ Find the number of customers and the percentage of customers for the two `Exited
 see that there are about 20% of the bank customers exited.
 
 ```{r target_prop_check_train}
-
+churn %>%
+  group_by(Exited) %>%
+  summarise (Counts = n(), Percentage = 100 * round(Counts/nrow(churn), 4))
 ```
 
 
@@ -89,6 +100,47 @@ see that there are about 20% of the bank customers exited.
 Do some EDA to try to uncover some relationships that may end up being
 useful in building a predictive model for `Exited`. You learned
 things in HW2 which should be useful here. You should **ONLY** use `churn_train` for your EDA. You should explore all of the variables.
+
+```{r Factors vs Exit message=FALSE, warning=FALSE}
+for (i in 1:10) {
+  selected_var <- names(churn_train)[i]
+  if (is.factor(churn_train[[selected_var]])) {
+    temp_data <- churn_train %>%
+      group_by(.data[[selected_var]], Exited) %>%
+      summarise(Count = n())
+    plot <- ggplot(temp_data, aes(x = factor(.data[[selected_var]]), y = Count, fill = factor(Exited))) + 
+      geom_bar(stat = "identity", position = "dodge") + 
+      labs(x = selected_var) +
+      facet_wrap(~ .data[[selected_var]], scales = "free_x")
+    print(plot)
+  }
+}
+```
+> Right off of the bat, a high proportion of people in Germany, females, and those that are not active members appear to exit more frequently -- independent of one another. 
+
+```{r Non-Factors vs Exit}
+for (i in 1:10) {
+  selected_var <- names(churn_train)[i]
+  if (!is.factor(churn_train[[selected_var]])) {
+    plot <- ggplot(churn_train, aes(x = Exited, y = .data[[selected_var]])) + geom_boxplot() + labs(selected_var)
+    print(plot)
+  }
+}
+```
+> It seems there doesn't appear to be a large difference between people with similar credit scores or differing estimated salaries. Meanwhile, it seems that the quantiles of individuals that are older tend to exit more often and the mean of indivdiuals who exit often have $0 in their accounts. 
+
+
+```{r }
+corr_matrix <- cor(select_if(churn_train, is.numeric))
+corrplot(corr_matrix)
+```
+> None of the numeric data seems to be correlated with any of the other numeric data.
+
+```{r Exploring balance further}
+churn_train %>%
+  ggplot(aes(x = Balance, color = Exited)) + geom_dotplot(binwidth = 500) 
+```
+> I thought the balance variable looked a little strange. It turns out there are a lot of people with a balance of around 125,000. For the people that exit, however, there is a much larger accumulation of them with 0 dollar balance. The dataset doesn't specify if they lost this money or if this was the balance in their accounts when they applied for the loan. 
 
 
 ## Step 5 - Building and evaluation of predictive classification models
@@ -100,7 +152,7 @@ as our metric but we might want to consider other metrics.
 **QUESTION** Why might overall prediction accuracy not be the most appropriate metric to consider? What other
 metrics might be important and why?
 
-> PUT YOUR ANSWER HERE
+> Overall prediction accuracy may not be the most appropriate metric to consider because as noted earlier with the counts of people who either exited or did not, our null model is going to be able to already predict about 80% accuracy if it assumes that nobody exits their loan position. Meanwhile, I believe that our primary interest is Recall(sensitivity). This is because we are interested in predicting which clients are going to exit their positions with the bank; therefore, we want to maximize our prediciton of the people we predict that actually leave relative to all of the people that we predict will leave. In other words, I want to be able to have a high prediction rate for who is actually going to leave the bank (we want to minimize the number of people we predict to leave that do not actually leave).
 
 ### Fit a null model
 
@@ -127,7 +179,7 @@ cm_test_null
 * Are you surprised that the performance of the null model is almost identical on test and train? Why or why not?
 * Explain the sensitivity and specificity values. 
 
-> PUT ANSWER HERE
+> I am not surprised that the performance of the null model is almost identical on the test and train data. The training data had ~27,000 observations to train on; therefore, I would expect its accuracy to be well identified. In terms of the sensitivity and specificity values: sensitivity refers to the proportion of values we correctly predicted of all predictions we made for a classifier while sensitivity refers to the proportion of values we correctly predicted with regards to all values that were actually true for a classifier. In this example, sensitivity is 0 because we didn't predict anybody to leave the bank and specificity is 1 because we were able to predict all of the individuals that didn't leave the bank (making the assumption nobody would leave).  
 
 So, as we begin fitting more complicated models, remember that we need to
 outperform the null model to make it worth it to use more complicated models.
@@ -165,42 +217,49 @@ without typing out all the variable names.
 
 ```{r lr1_train}
 # Fit model to training data
-# model_lr1 <- glm(??? ~ ???, 
-#                 data=???, family=???(link="???"))
+model_lr1 <- glm(Exited ~ Geography + Gender + Age + Balance * NumOfProducts + IsActiveMember,
+  data=churn_train, family=binomial(link="logit"))
 
 ## Convert fitted model values to fitted classes. Use 0.5 as the
 #  threshold for classifying a case as a 1.
 
-# class_train_lr1 <- as.factor(???)
-                          
-# cm_train_lr1 <- confusionMatrix(???, ???, positive="1")
-# cm_train_lr1
+class_train_lr1 <- as.factor(ifelse(model_lr1$fitted.values > 0.5, 1, 0))
+
+
+cm_train_lr1 <- confusionMatrix(class_train_lr1, model_lr1$data$Exited, positive="1")
+cm_train_lr1
 ```
 
 Now, let's predict on test data.
 
 ```{r lr1_test}
 
-# pred_lr1 <- predict(???, newdata = ???, type = "???")
+pred_lr1 <- predict(model_lr1, newdata = churn_test, type = "response")
 
-# class_test_lr1 <- as.factor(???)
-                          
-# cm_test_lr1 <- confusionMatrix(???, ???, positive="1")
-# cm_test_lr1
+class_test_lr1 <- as.factor(ifelse(pred_lr1 > 0.5, 1, 0))
+
+cm_test_lr1 <- confusionMatrix(class_test_lr1, churn_test$Exited, positive="1")
+cm_test_lr1
 
 ```
 
-**QUESTION** How did accuracy, sensitivity and specificity change when predicting on test data instead of the training data?
+**QUESTION/DISCUSSION** How did accuracy, sensitivity and specificity change when predicting on test data instead of the training data?
 
-> PUT ANSWER HERE
+> The model is approximately 85.2% accurate at predicting on the test data which is 5% greater than our null model. There may be slight overfitting because the model does drop accuracy, specificity, and sensitivity ever so slightly, but I believe that this is more or less due to the fact that the training data has more data to train on. The model still holds high specificity with ~94.5% on the test data, however, compared to the null model, our sensitivity has risen around ~50% -- which is awesome and what we are trying to optimize.
 
 Now change the threshold from 0.5 to 0.4 and create a new model using this new threshold. How does the sensitivity and specificity change as compared to our first logistic regression model? Explain why this happens?
 
 ```{r increase_sensitivity}
+pred_lr2 <- predict(model_lr1, newdata = churn_test, type = "response")
+
+class_test_lr2 <- as.factor(ifelse(pred_lr2 > 0.4, 1, 0))
+
+cm_test_lr2 <- confusionMatrix(class_test_lr2, churn_test$Exited, positive="1")
+cm_test_lr2
 
 ```
 
-> PUT ANSWER HERE
+> When lowering the logistic regression threshold down to 40% instead of 50%, my model saw about a 1% drop-off in accuracy with the test set, about 5% drop with specificity, and about a 10% gain of sensitivity. This is actually good despite the falling accuracy and specifcity because we want to correctly predict the people taht are going to leave.. the true positves / true positives + false negatives. 
 
 
 ### Fit simple decision tree model
